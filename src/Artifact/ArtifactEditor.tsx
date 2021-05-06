@@ -16,9 +16,11 @@ import UploadDisplay from './UploadDisplay';
 import { allArtifactSets, Rarity, SlotKey } from '../Types/consts';
 import { ArtifactSheet } from './ArtifactSheet';
 import { usePromise } from '../Util/ReactUtil';
+import { Trans, useTranslation } from 'react-i18next';
 
 let uploadDisplayReset
 export default function ArtifactEditor({ artifactIdToEdit, cancelEdit }) {
+  const { t } = useTranslation(["ui", "artifact"]);
   const [artifact, artifactDispatch] = useReducer(artifactReducer, undefined)
   const artifactInEditor = useMemo(() => !ArtifactDatabase.isInvalid(artifact), [artifact])
   const artifactSheets = usePromise(ArtifactSheet.getAll())
@@ -68,7 +70,7 @@ export default function ArtifactEditor({ artifactIdToEdit, cancelEdit }) {
   const { numStars = 5, level = 0, slotKey = "flower" } = artifact ?? {}
   const errMsgs = artifact ? Artifact.substatsValidation(artifact) : []
   return <Card bg="darkcontent" text={"lightfont" as any}>
-    <Card.Header>Artifact Editor</Card.Header>
+    <Card.Header><Trans i18nKey="artifact:editor.title" >Artifact Editor</Trans></Card.Header>
     <Card.Body>
       <Row>
         {/* Left column */}
