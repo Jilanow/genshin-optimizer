@@ -63,21 +63,18 @@ const formula: IFormulaSheet = {
     [name, stats => basicDMGFormula(arr[stats.tlvl.auto], stats, "plunging")])),
   skill: {
     dmg: stats => basicDMGFormula(data.skill.dmg[stats.tlvl.skill], stats, "skill"),
-    shield1: stats => {
-      const def = data.skill.def1[stats.tlvl.skill] / 100
-      const flat = data.skill.flat1[stats.tlvl.skill]
-      return [s => def * s.finalDEF + flat, ["finalDEF"]]
-    },
-    shield2: stats => {
-      const def = data.skill.def2[stats.tlvl.skill] / 100
-      const flat = data.skill.flat2[stats.tlvl.skill]
-      return [s => def * s.finalDEF + flat, ["finalDEF"]]
-    },
-    shield3: stats => {
-      const def = data.skill.def3[stats.tlvl.skill] / 100
-      const flat = data.skill.flat3[stats.tlvl.skill]
-      return [s => def * s.finalDEF + flat, ["finalDEF"]]
-    },
+    ...Object.fromEntries([...Array(3)].map((_, i) => i + 1).flatMap(i => [
+      [`shield${i}`, stats => {
+        const percent = data.skill[`def${i}`][stats.tlvl.skill] / 100
+        const flat = data.skill[`flat${i}`][stats.tlvl.skill]
+        return [s => (percent * s.finalDEF + flat) * (1 + s.powShield_ / 100), ["finalDEF", "powShield_"]]
+      }],
+      [`shield${i}Pyro`, stats => {
+        const percent = data.skill[`def${i}`][stats.tlvl.skill] / 100
+        const flat = data.skill[`flat${i}`][stats.tlvl.skill]
+        return [s => (percent * s.finalDEF + flat) * (1 + s.powShield_ / 100) * 2.5, ["finalDEF", "powShield_"]]
+      }],
+    ])),
     dot: stats => basicDMGFormula(data.skill.dot[stats.tlvl.skill], stats, "skill"),
   },
   burst: {
