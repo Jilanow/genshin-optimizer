@@ -213,7 +213,7 @@ function processEntry(file: File): ProcessingEntry {
     const sheets = await ArtifactSheet.getAll()
     const ocrResult = await ocr(image)
 
-    const [artifact, texts] = bestArtifact(
+    const [artifact, texts] = findBestArtifact(
       sheets, ocrResult.rarities,
       parseSetKeys(ocrResult.artifactSetTexts, sheets),
       parseSlotKeys(ocrResult.whiteTexts),
@@ -291,7 +291,7 @@ async function textsFromImage(imageDataObj: ImageData, options: object | undefin
   return rec.data.lines.map(line => line.text)
 }
 
-function bestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactSheet>, rarities: Set<number>, textSetKeys: Set<ArtifactSetKey>, slotKeys: Set<SlotKey>, substats: Substat[], mainStatKeys: Set<MainStatKey>, mainStatValues: { mainStatValue: number, unit?: string }[]): [IArtifact, Dict<keyof IArtifact, Displayable>] {
+export function findBestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactSheet>, rarities: Set<number>, textSetKeys: Set<ArtifactSetKey>, slotKeys: Set<SlotKey>, substats: Substat[], mainStatKeys: Set<MainStatKey>, mainStatValues: { mainStatValue: number, unit?: string }[]): [IArtifact, Dict<keyof IArtifact, Displayable>] {
   const relevantSetKey = [...new Set<ArtifactSetKey>([...textSetKeys, "Adventurer", "ArchaicPetra"])]
 
   let bestScore = -1, bestArtifacts: IArtifact[] = [{
@@ -333,7 +333,7 @@ function bestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactSheet>, raritie
           const values = Artifact.mainStatValues(numStars, mainStatKey)
           const level = Math.max(0, values.findIndex(level => level >= minimumMainStatValue))
           const mainStatVal = values[level]
-          const mainStatValScore = rarityScore + (level === minimumMainStatValue ? 1 : 0)
+          const mainStatValScore = rarityScore + (mainStatVal === minimumMainStatValue ? 1 : 0)
 
           for (const setKey of setKeys) {
             const score = mainStatValScore + (textSetKeys.has(setKey) ? 1 : 0)
