@@ -1,5 +1,5 @@
 {
-  "page-title": "Genshin Optimizer",
+  "pageTitle": "Genshin Optimizer",
   "tabs": {
     "artifacts": "Artifacts",
     "characters": "Characters",
@@ -28,5 +28,17 @@
   "sortByFormat": "Sort By: {{value}}",
   "loading": "Loading...",
   "rightsDisclaimer": "Genshin Optimizer is not affiliated with or endorsed by miHoYo.",
-  "appVersion": "$t(page-title) Version: {{version}}"
-} 
+  "appVersion": "$t(pageTitle) Version: {{version}}",
+  "text": [
+    "Summons protective stone armor, dealing <color>Geo DMG</color> to surrounding opponents and creating a shield. The shield's DMG Absorption scales based on Noelle's DEF.",
+    "The shield has the following properties:",
+    [
+      "·When Noelle's Normal and Charged Attacks hit a target, they have a certain chance to regenerate HP for all characters.",
+      "·Possesses 150% DMG Absorption efficiency against all Elemental and Physical DMG."
+    ],
+    "br",
+    "The amount of HP healed when regeneration is triggered scales based on Noelle's DEF.",
+    "br",
+    "<i>Noelle is both a dutiful maid and a valiant knight.</i>"
+  ]
+}

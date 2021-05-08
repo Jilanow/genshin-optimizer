@@ -15,6 +15,7 @@ import './Assets/Image.scss';
 import LoadingCard from './Components/LoadingCard';
 import { DatabaseInitAndVerify } from './Database/DatabaseUtil';
 import './i18n';
+import { LanguageDropdown } from './Settings/SettingsDisplay';
 
 const Home = lazy(() => import('./Home/HomeDisplay'))
 const ArtifactDisplay = lazy(() => import('./Artifact/ArtifactDisplay'))
@@ -43,6 +44,8 @@ function App() {
                 {process.env.NODE_ENV === "development" && <Nav.Link as={Link} to="/test">TEST</Nav.Link>}
               </Nav>
               <Nav>
+                {/* TODO: REMOVE */}
+                <LanguageDropdown />
                 <Nav.Link href={process.env.REACT_APP_PAYPAL_LINK} target="_blank" rel="noreferrer" onClick={() => ReactGA.outboundLink({ label: "patreon" }, () => { })}>
                   <span><FontAwesomeIcon icon={faPaypal} className="fa-fw" /> <Trans t={t} i18nKey="ui:social.paypal">PayPal</Trans></span>
                 </Nav.Link>

@@ -29,3 +29,6 @@ yarn-error.log*
 .notes
 # template files
 TEMPLATE*
+
+# localization JSON from datamined
+/localization-gen/TextMap/*.json

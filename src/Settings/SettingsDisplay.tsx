@@ -27,13 +27,18 @@ export default function SettingsDisplay() {
 }
 
 function LanguageCard() {
+  return <Card bg="lightcontent" text={"lightfont" as any} className="mb-3">
+    <Card.Header><Trans i18nKey="settings:languageCard.selectLanguage" /></Card.Header>
+    <Card.Body>
+      <LanguageDropdown />
+    </Card.Body>
+  </Card>
+}
+export function LanguageDropdown() {
   const { t, i18n } = useTranslation(["ui", "settings"]);
   const onSetLanguage = (lang) => () => i18n.changeLanguage(lang);
   const currentLang = i18n.languages[0];
-  return <Card bg="lightcontent" text={"lightfont" as any} className="mb-3">
-    <Card.Header><Trans t={t} i18nKey="settings:languageCard.selectLanguage" /></Card.Header>
-    <Card.Body>
-      <Dropdown className="flex-grow-1 mb-2">
+  return <Dropdown className="flex-grow-1 mb-2">
         <Dropdown.Toggle className="w-100" variant="primary">
           {t('settings:languageCard.languageFormat', { language: t(`languages:${currentLang}`) })}
         </Dropdown.Toggle>
@@ -41,8 +46,6 @@ function LanguageCard() {
           {languageCodeList.map((lang) => <Dropdown.Item key={lang} onClick={onSetLanguage(lang)}><Trans i18nKey={`languages:${lang}`} /></Dropdown.Item>)}
         </Dropdown.Menu>
       </Dropdown>
-    </Card.Body>
-  </Card>
 }
 
 function download(JSONstr, filename = "data.json") {

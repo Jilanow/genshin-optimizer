@@ -1,4 +1,6 @@
 {
+  "chs": "Chinese (Simplified)",
+  "cht": "Chinese (Traditional)",
   "de": "German",
   "en": "English",
   "es": "Spanish",
@@ -9,6 +11,5 @@
   "pt": "Portuguese",
   "ru": "Russian",
   "th": "Thai",
-  "vi": "Vietnamese",
-  "zh": "Chinese"
-} 
+  "vi": "Vietnamese"
+}

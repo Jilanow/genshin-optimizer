@@ -6,7 +6,7 @@ This guide provides tips to make translation easier and more efficient.
 
 ```
 {
-  "app-welcome": "Welcome to $t(page-title)!"
+  "app-welcome": "Welcome to $t(pageTitle)!"
 }
 ```
 
@@ -14,7 +14,7 @@ This guide provides tips to make translation easier and more efficient.
 
 ```
 {
-  "appVersion": "$t(page-title) version: {{version}}"
+  "appVersion": "$t(pageTitle) version: {{version}}"
 }
 ```
 

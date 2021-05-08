@@ -5,18 +5,19 @@ import { initReactI18next } from 'react-i18next';
 
 // Probably a way to auto-populate this.
 export const languageCodeList = [
+  "chs",
+  "cht",
+  "de",
   "en",
-  "zh",
+  "es",
+  "fr",
+  "id",
   "ja",
   "ko",
-  "fr",
-  "de",
-  "id",
   "pt",
   "ru",
-  "es",
   "th",
-  "vi",
+  "vi"
 ];
 
 /**
@@ -38,8 +39,8 @@ i18n
     debug: true,
     // Use English strings by default, if the current language does not include
     // the specified string.
-    // fallbackLng: 'en',
-    fallbackLng: 'dev', // Switch to this to force the fallback value on missing strings.
+    fallbackLng: 'en',
+    // fallbackLng: 'dev', // Switch to this to force the fallback value on missing strings.
 
     // List all translation namespaces.
     ns: [
@@ -48,6 +49,7 @@ i18n
       "languages",
       "settings",
       "ui",
+      "noelle"
     ],
     // Specify the default namespace.
     defaultNS: "ui",
