@@ -1,9 +1,9 @@
 import { faTimes } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import { Button, Card, Col, Form, Modal, ProgressBar, Row } from 'react-bootstrap';
 import ReactGA from 'react-ga';
-import { createWorker } from 'tesseract.js';
+import { createScheduler, createWorker, RecognizeResult, Scheduler } from 'tesseract.js';
 import scan_art_main from "./imgs/scan_art_main.png";
 import Snippet from "./imgs/snippet.png";
 import Stat from '../Stat';
@@ -13,76 +13,50 @@ import { allMainStatKeys, allSubstats, IArtifact, MainStatKey, Substat, SubstatK
 import { allArtifactRarities, allArtifactSets, allSlotKeys, ArtifactSetKey, Rarity, SlotKey } from '../Types/consts';
 import { ArtifactSheet } from './ArtifactSheet';
 import { valueString } from '../Util/UIUtil';
+import { usePromise } from '../Util/ReactUtil';
 
 const starColor = { r: 255, g: 204, b: 50 } //#FFCC32
-const zeroProgress = { now: 0, variant: "" }
+const maxProcessingCount = 4, workerCount = 2
+
+const schedulers: Dict<string, Promise<Scheduler>> = {}
 
 export default function UploadDisplay({ setState, setReset, artifactInEditor }) {
-  const [fileList, setFileList] = useState([] as { name: string }[])
-  const [fileName, setFileName] = useState("Click here to Upload Artifact Screenshot File");
-  const [image, setImage] = useState('');
-
-  const [scanning, setScanning] = useState(false)
-  const [otherProgress, setOtherProgress] = useState(zeroProgress);
-  const [substatProgress, setSubstatProgress] = useState(zeroProgress);
-  const [artSetProgress, setArtSetProgress] = useState(zeroProgress);
-  const [texts, setTexts] = useState({} as Dict<keyof IArtifact, Displayable>)
-
   const [modalShow, setModalShow] = useState(false)
-  const resetText = () => setTexts({})
-  const scanFile = useCallback(
-    async () => {
-      if (!fileList.length) return
-      const [file, ...rest] = fileList
-      setFileList(rest)
-      if (!file) return
-      setScanning(true)
-      resetText()
-      setFileName(file.name)
-      const urlFile = await fileToURL(file)
-      setImage(urlFile)
-      const [artifact, texts] = await artifactFromImage(
-        urlFile,
-        setOtherProgress,
-        setSubstatProgress,
-        setArtSetProgress
-      )
 
-      setTexts(texts)
-      setState?.(artifact)
-    }, [fileList, setState])
+  const [{ processed, outstanding, processing }, dispatchQueue] = useReducer(queueReducer, { processed: [], outstanding: [], processing: undefined })
+  const remaining = processed.length + outstanding.length
 
-  const resetState = useCallback(
-    () => {
-      setFileName("Click here to Upload Artifact Screenshot File")
-      setImage("")
-      setModalShow(false)
-      setScanning(false)
+  const processingImage = usePromise(processing?.image)
 
-      setOtherProgress(zeroProgress)
-      setSubstatProgress(zeroProgress)
-      setArtSetProgress(zeroProgress)
-      resetText();
-      //scan the next file
-      scanFile();
-    }, [scanFile])
+  const current = processed[0] as ProcessedEntry | undefined
+  const image = current?.image ?? processingImage
+  const { artifact, texts } = current ?? {}
+  const fileName = current?.file.name ?? processing?.file.name ?? "Click here to upload Artifact screenshot files"
 
-  const uploadFiles = useCallback(
-    (files) => setFileList([...fileList, ...files]), [fileList])
   useEffect(() => {
-    const pasteFunc = e =>
-      uploadFiles(e.clipboardData.files)
+    if (!artifactInEditor && artifact)
+      setState(artifact)
+  }, [artifactInEditor, artifact, setState])
+
+  useEffect(() => {
+    processing?.image.then(image => processing.result.then(({ artifact, texts }) => {
+      dispatchQueue({ type: "processed", entry: { file: processing.file, image, artifact, texts } })
+    }))
+  }, [processing])
+
+  const removeCurrent = useCallback(() => dispatchQueue({ type: "pop" }), [dispatchQueue])
+  const uploadFiles = useCallback((files: FileList) => dispatchQueue({ type: "upload", files: [...files] }), [dispatchQueue])
+  const clearQueue = useCallback(() => dispatchQueue({ type: "clear" }), [dispatchQueue])
+
+  useEffect(() => {
+    const pasteFunc = e => uploadFiles(e.clipboardData.files)
     window.addEventListener('paste', pasteFunc);
-    setReset?.(resetState);
+    setReset?.(removeCurrent);
     return () =>
       window.removeEventListener('paste', pasteFunc)
-  }, [setReset, resetState, uploadFiles])
+  }, [setReset, removeCurrent, uploadFiles])
 
-  useEffect(() => {
-    if (!scanning && !artifactInEditor) scanFile()
-  }, [scanning, artifactInEditor, fileList, scanFile])
-
-  const img = Boolean(image) && <img src={image} className="w-100 h-auto" alt="Screenshot to parse for artifact values" />
+  const img = image && <img src={image} className="w-100 h-auto" alt="Screenshot to parse for artifact values" />
   return (<Row>
     <ExplainationModal {...{ modalShow, hide: () => setModalShow(false) }} />
     <Col xs={12} className="mb-2">
@@ -96,30 +70,22 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
         }}>Show Me How!</Button></Col>
       </Row>
     </Col>
-    {Boolean(fileList.length) && <Col xs={12}>
+    {remaining > 0 && <Col xs={12}>
       <Card bg="lightcontent" text={"lightfont" as any} className="mb-2">
         <Row>
-          <Col className="p-1 ml-2">Screenshots in file-queue: <b>{fileList.length}</b></Col>
-          <Col xs="auto"><Button size="sm" variant="danger" onClick={() => setFileList([])}>Clear file-queue</Button></Col>
+          <Col className="p-1 ml-2">Screenshots in file-queue: <b>{remaining}</b></Col>
+          <Col xs="auto"><Button size="sm" variant="danger" onClick={clearQueue}>Clear file-queue</Button></Col>
         </Row>
       </Card>
     </Col>}
     <Col xs={8} lg={image ? 4 : 0}>{img}</Col>
     <Col xs={12} lg={image ? 8 : 12}>
-      {scanning && <>
+      {remaining > 0 && <>
         <div className="mb-2">
-          <h6 className="mb-0">{`Scan${artSetProgress.now < 100 ? "ning" : "ned"} Artifact Set`}</h6>
-          <ProgressBar {...artSetProgress} label={`${artSetProgress.now.toFixed(1)}%`} />
+          <h6 className="mb-0">{`${processing ? `Scanning` : "Scanned"}`} {processed.length ? `${processed.length} artifacts ahead` : "current artifact"}</h6>
+          <ProgressBar animated={!!processing} now={100} />
         </div>
-        <div className="mb-2">
-          <h6 className="mb-0">{`Scan${substatProgress.now < 100 ? "ning" : "ned"} Artifact Substat`}</h6>
-          <ProgressBar {...substatProgress} label={`${substatProgress.now.toFixed(1)}%`} />
-        </div>
-        <div className="mb-2">
-          <h6 className="mb-0">{`Scan${otherProgress.now < 100 ? "ning" : "ned"} Other`}</h6>
-          <ProgressBar {...otherProgress} label={`${otherProgress.now.toFixed(1)}%`} />
-        </div>
-        <div className="mb-2">
+        {texts && <div className="mb-2">
           <div>{texts.slotKey}</div>
           <div>{texts.mainStatKey}</div>
           <div>{texts.mainStatVal}</div>
@@ -127,7 +93,7 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
           <div>{texts.level}</div>
           <div>{texts.substats}</div>
           <div>{texts.setKey}</div>
-        </div>
+        </div>}
       </>}
       <Form.File
         type="file"
@@ -135,7 +101,7 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
         label={fileName}
         onChange={e => {
           uploadFiles(e.target.files)
-          e.target.value = null//reset the value so the same file can be uploaded again...
+          e.target.value = null // reset the value so the same file can be uploaded again...
         }}
         accept="image/*"
         custom
@@ -199,8 +165,70 @@ function ExplainationModal({ modalShow, hide }) {
   </Modal>
 }
 
-let reader = new FileReader()
+const queueReducer = (queue: Queue, message: UploadMessage | ProcessedMessage | PopMessage | ClearMessage): Queue => {
+  const finalize = (processed: ProcessedEntry[], outstanding: File[]) => {
+    if (outstanding[0] !== queue.processing?.file) {
+      const file = processed.length < maxProcessingCount ? outstanding[0] : undefined
+      const processing = file ? processEntry(file) : undefined
+      return { processed, outstanding, processing }
+    }
+    return { processed, outstanding, processing: queue.processing }
+  }
+  switch (message.type) {
+    case "upload": return finalize(queue.processed, [...queue.outstanding, ...message.files])
+    case "processed":
+      if (queue.outstanding[0] === message.entry.file)
+        return finalize([...queue.processed, message.entry], queue.outstanding.slice(1))
+      return queue // Not in the list, ignored
+    case "pop": return finalize(queue.processed.slice(1), queue.outstanding)
+    case "clear": return { processed: [], outstanding: [], processing: undefined }
+  }
+}
+
+function getScheduler(language: string): Promise<Scheduler> {
+  if (schedulers[language])
+    return schedulers[language]!
+
+  const scheduler = createScheduler()
+  const promises = Array(workerCount).fill(0).map(_ => {
+    const worker = createWorker({
+      errorHandler: console.error
+    })
+
+    return worker.load().then(async () => {
+      await worker.loadLanguage(language)
+      await worker.initialize(language)
+      scheduler.addWorker(worker)
+    })
+  })
+
+  const result = Promise.any(promises).then(() => scheduler)
+  schedulers[language] = result
+  return result
+}
+
+function processEntry(file: File): ProcessingEntry {
+  const image = fileToURL(file)
+  const result = image.then(async image => {
+    const sheets = await ArtifactSheet.getAll()
+    const ocrResult = await ocr(image)
+
+    const [artifact, texts] = bestArtifact(
+      sheets, ocrResult.rarities,
+      parseSetKeys(ocrResult.artifactSetTexts, sheets),
+      parseSlotKeys(ocrResult.whiteTexts),
+      parseSubstats(ocrResult.substatTexts),
+      parseMainStatKeys(ocrResult.whiteTexts),
+      parseMainStatValues(ocrResult.whiteTexts)
+    )
+
+    return { artifact, texts }
+  })
+  return { file, image, result }
+}
+
 function fileToURL(file): Promise<string> {
+  let reader = new FileReader()
   return new Promise(resolve => {
     // let reader = new FileReader();
     reader.onloadend = () => {
@@ -229,54 +257,41 @@ function getImageData(image: HTMLImageElement): ImageData {
 
 function imageDataToURL(imageDataObj: ImageData) {
   // create off-screen canvas element
-  let canvas = document.createElement('canvas'),
-    ctx = canvas.getContext('2d');
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')
+  canvas.width = imageDataObj.width
+  canvas.height = imageDataObj.height
 
-  canvas.width = imageDataObj.width;
-  canvas.height = imageDataObj.height;
-
-  // create imageData object
-  let idata = ctx?.createImageData(imageDataObj.width, imageDataObj.height) as ImageData; // TODO: May be null
-
-  // set our buffer as source
-  idata.data.set(imageDataObj.data);
-
-  // update canvas with new data
-  ctx?.putImageData(idata, 0, 0);
-
-  let dataUri = canvas.toDataURL(); // produces a PNG file
-
-  return dataUri
+  const idata = ctx?.createImageData(imageDataObj.width, imageDataObj.height) as ImageData // create imageData object
+  idata.data.set(imageDataObj.data) // set our buffer as source
+  ctx?.putImageData(idata, 0, 0) // update canvas with new data
+  return canvas.toDataURL(); // produces a PNG file
 }
 
-function colorCloseEnough(color1, color2, threshold = 5) {
-  const intCloseEnough = (a, b) => (Math.abs(a - b) <= threshold)
-  return intCloseEnough(color1.r, color2.r) &&
-    intCloseEnough(color1.g, color2.g) &&
-    intCloseEnough(color1.b, color2.b)
-}
-
-async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatProgress, setArtSetProgress): Promise<[IArtifact, Dict<keyof IArtifact, Displayable>]> {
+async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], substatTexts: string[], whiteTexts: string[], rarities: Set<Rarity> }> {
   const imageDataObj = await urlToImageData(urlFile)
+
+  const width = imageDataObj.width, halfHeight = imageDataObj.height / 2
+  const topOpts = { rectangle: { top: 0, left: 0, width, height: halfHeight } }
+  const bottomOpts = { rectangle: { top: halfHeight, left: 0, width, height: halfHeight } }
+
   const awaits = [
-    // slotkey, mainStatValue, level
-    textsFromImage(bandPass(imageDataObj, [140, 140, 140], [255, 255, 255], { region: "top", mode: "bw" }), setOtherProgress),
-    // substats
-    textsFromImage(bandPass(imageDataObj, [30, 50, 80], [160, 160, 160], { region: "bot" }), setSubstatProgress),
-    // artifact set, look for greenish texts
-    textsFromImage(bandPass(imageDataObj, [30, 160, 30], [200, 255, 200], { region: "bot", mode: "bw" }), setArtSetProgress),
+    textsFromImage(bandPass(imageDataObj, [140, 140, 140], [255, 255, 255], { mode: "bw" }), topOpts), // slotkey, mainStatValue, level
+    textsFromImage(bandPass(imageDataObj, [30, 50, 80], [160, 160, 160], {}), bottomOpts), // substats
+    textsFromImage(bandPass(imageDataObj, [30, 160, 30], [200, 255, 200], { mode: "bw" }), bottomOpts), // artifact set, look for greenish texts
   ]
 
-  const sheets = await ArtifactSheet.getAll()
+  const rarities = parseRarities(imageDataObj.data, imageDataObj.width, imageDataObj.height)
   const [whiteTexts, substatTexts, artifactSetTexts] = await Promise.all(awaits)
+  return { whiteTexts, substatTexts, artifactSetTexts, rarities }
+}
+async function textsFromImage(imageDataObj: ImageData, options: object | undefined = undefined): Promise<string[]> {
+  const imageURL = imageDataToURL(imageDataObj)
+  const scheduler = await getScheduler("eng")
+  const rec = await scheduler.addJob("recognize", imageURL, options) as RecognizeResult
+  return rec.data.lines.map(line => line.text)
+}
 
-  const textRarities = parseRarities(imageDataObj.data, imageDataObj.width, imageDataObj.height)
-  const textSetKeys = parseSetKeys(artifactSetTexts, sheets)
-  const textSlotKeys = parseSlotKeys(whiteTexts)
-  const textSubstats = parseSubstats(substatTexts)
-  const textMainStatKeys = parseMainStatKeys(whiteTexts)
-  const textMainStatValues = parseMainStatValues(whiteTexts)
-
+function bestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactSheet>, rarities: Set<number>, textSetKeys: Set<ArtifactSetKey>, slotKeys: Set<SlotKey>, substats: Substat[], mainStatKeys: Set<MainStatKey>, mainStatValues: { mainStatValue: number, unit?: string }[]): [IArtifact, Dict<keyof IArtifact, Displayable>] {
   const relevantSetKey = [...new Set<ArtifactSetKey>([...textSetKeys, "Adventurer", "ArchaicPetra"])]
 
   let bestScore = -1, bestArtifacts: IArtifact[] = [{
@@ -291,10 +306,10 @@ async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatPr
       const count = [...textSetKeys].reduce((count, set) => count + (sheets[set].rarity.includes(rarity) ? 1 : 0), 0)
       score += count / textSetKeys.size
     }
-    if (textSubstats.length) {
-      const count = textSubstats.reduce((count, substat) =>
+    if (substats.length) {
+      const count = substats.reduce((count, substat) =>
         count + (Artifact.getSubstatRolls(substat.key as SubstatKey, substat.value, rarity).length ? 1 : 0), 0)
-      score += count / textSubstats.length * 2
+      score += count / substats.length * 2
     }
     return [rarity, score]
   }))
@@ -302,8 +317,8 @@ async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatPr
   // Test all *probable* combinations
   for (const slotKey of allSlotKeys) {
     for (const mainStatKey of Artifact.slotMainStats(slotKey)) {
-      const mainStatScore = (textSlotKeys.has(slotKey) ? 1 : 0) + (textMainStatKeys.has(mainStatKey) ? 1 : 0)
-      const relevantMainStatValues = textMainStatValues
+      const mainStatScore = (slotKeys.has(slotKey) ? 1 : 0) + (mainStatKeys.has(mainStatKey) ? 1 : 0)
+      const relevantMainStatValues = mainStatValues
         .filter(value => value.unit !== "%" || Stat.getStatUnit(mainStatKey) === "%") // Ignore "%" text if key isn't "%"
         .map(value => value.mainStatValue)
 
@@ -353,7 +368,9 @@ async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatPr
   } as Dict<keyof IArtifact, Set<string>>
 
   const result = bestArtifacts[0]
-  result.substats = textSubstats.filter(substat => substat.key !== result.mainStatKey)
+  result.substats = substats.filter((substat, i) =>
+    substat.key !== result.mainStatKey &&
+    substats.slice(0, i).every(other => other.key !== substat.key))
   for (let i = result.substats.length; i < 4; i++)
     result.substats.push({ key: "", value: 0 })
 
@@ -375,8 +392,8 @@ async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatPr
   function detectedText<T>(value: T, name: Displayable, text: (arg: T) => Displayable) {
     return <>Detected {name} <span className="text-success">{text(value)}</span></>
   }
-  function inferredText<T>(value: T, name: Displayable, text: (arg: T) => Displayable, reason?: Displayable) {
-    return <>Inferred {name} <span className="text-warning">{text(value)}</span>{reason ? <> : {reason}</> : ""}</>
+  function inferredText<T>(value: T, name: Displayable, text: (arg: T) => Displayable) {
+    return <>Inferred {name} <span className="text-warning">{text(value)}</span></>
   }
 
   function addText(key: keyof IArtifact, available: Set<any>, name: Displayable, text: (value) => Displayable) {
@@ -392,15 +409,15 @@ async function artifactFromImage(urlFile: string, setOtherProgress, setSubstatPr
   }
 
   addText("setKey", textSetKeys, "Set", (value) => sheets[value].name)
-  addText("numStars", textRarities, "Rarity", (value) => <>{value} {value !== 1 ? "Stars" : "Star"}</>)
-  addText("slotKey", textSlotKeys, "Slot", (value) => <>{Artifact.slotName(value)}</>)
-  addText("mainStatKey", textMainStatKeys, "Main Stat", (value) => <>{Stat.getStatNameWithPercent(value)}{ }</>)
+  addText("numStars", rarities, "Rarity", (value) => <>{value} {value !== 1 ? "Stars" : "Star"}</>)
+  addText("slotKey", slotKeys, "Slot", (value) => <>{Artifact.slotName(value)}</>)
+  addText("mainStatKey", mainStatKeys, "Main Stat", (value) => <>{Stat.getStatNameWithPercent(value)}{ }</>)
   texts.substats = <>{result.substats.filter(substat => substat.key !== "").map((substat, i) =>
     <div key={i}>{detectedText(substat, "Sub Stat", (value) => <>{Stat.getStatName(value.key)}+{value.value}{Stat.getStatUnit(value.key) === "%" ? "%" : ""}</>)}</div>)
   }</>
 
   const unit = Stat.getStatUnit(result.mainStatKey)
-  if (textMainStatValues.find(value => value.mainStatValue === result.mainStatVal)) {
+  if (mainStatValues.find(value => value.mainStatValue === result.mainStatVal)) {
     texts.level = detectedText(result.level, "Level", (value) => "+" + value)
     texts.mainStatVal = detectedText(result.mainStatVal, "Main Stat value", (value) => <>{valueString(value, unit)}{unit === "%" ? "%" : ""}</>)
   } else {
@@ -446,6 +463,12 @@ function parseRarities(pixels: Uint8ClampedArray, width: number, height: number)
     }
   }
   return results
+}
+function colorCloseEnough(color1, color2, threshold = 5) {
+  const intCloseEnough = (a, b) => (Math.abs(a - b) <= threshold)
+  return intCloseEnough(color1.r, color2.r) &&
+    intCloseEnough(color1.g, color2.g) &&
+    intCloseEnough(color1.b, color2.b)
 }
 function parseSlotKeys(texts: string[]): Set<SlotKey> {
   const results = new Set<SlotKey>()
@@ -497,39 +520,13 @@ function parseSubstats(texts: string[]): Substat[] {
   return matches
 }
 
-async function textsFromImage(imageDataObj: ImageData, setProgress): Promise<string[]> {
-  const tworker = createWorker({
-    logger: ({ progress, status }) => {
-      if (status === "loading tesseract core")
-        setProgress({ now: progress * 5 + 0, variant: "danger" })
-      else if (status.includes("loading language traineddata"))
-        setProgress({ now: progress * 5 + 5, variant: "warning" })
-      else if (status.includes("initializing api"))
-        setProgress({ now: progress * 5 + 10, variant: "info" })
-      else if (status === "recognizing text")
-        setProgress({ now: progress * 85 + 15, variant: "success" })
-    },
-    errorHandler: console.error
-  })
-  await tworker.load()
-  await tworker.loadLanguage('eng')
-  await tworker.initialize('eng')
-
-  const imageURL = imageDataToURL(imageDataObj)
-  const rec = await tworker.recognize(imageURL)
-  await tworker.terminate()
-  return rec.data.lines.map(line => line.text)
-}
-function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: { region?: "top" | "bot" | "all", mode?: "bw" | "color" | "invert" }) {
-  const { region = "all", mode = "color" } = options
+function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: { mode?: "bw" | "color" | "invert" }) {
+  const { mode = "color" } = options
   const d = Uint8ClampedArray.from(pixelData.data)
-  const top = region === "top", bot = region === "bot", all = region === "all"
   const bw = mode === "bw", invert = mode === "invert"
-  const halfInd = Math.floor(pixelData.width * (pixelData.height / 2) * 4)
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
-    if ((all || (top && i < halfInd) || (bot && i > halfInd)) &&
-      r >= color1[0] && r <= color2[0] &&
+    if (r >= color1[0] && r <= color2[0] &&
       g >= color1[1] && g <= color2[1] &&
       b >= color1[2] && b <= color2[2]) {
       if (bw) d[i] = d[i + 1] = d[i + 2] = 0
@@ -545,4 +542,15 @@ function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: {
   return new ImageData(d, pixelData.width, pixelData.height)
 }
 
+type ProcessedEntry = {
+  file: File, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
+}
+type ProcessingEntry = {
+  file: File, image: Promise<string>, result: Promise<{ artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable> }>
+}
+type Queue = { processed: ProcessedEntry[], outstanding: File[], processing: ProcessingEntry | undefined }
+type UploadMessage = { type: "upload", files: File[] }
+type ProcessedMessage = { type: "processed", entry: ProcessedEntry }
+type PopMessage = { type: "pop" }
+type ClearMessage = { type: "clear" }
 type Color = [number, number, number] // RGB
