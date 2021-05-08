@@ -16,7 +16,7 @@ import { valueString } from '../Util/UIUtil';
 import { usePromise } from '../Util/ReactUtil';
 
 const starColor = { r: 255, g: 204, b: 50 } //#FFCC32
-const maxProcessingCount = 4, workerCount = 2
+const maxProcessingCount = 16, workerCount = 2
 
 const schedulers: Dict<string, Promise<Scheduler>> = {}
 
@@ -31,7 +31,7 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
   const current = processed[0] as ProcessedEntry | undefined
   const image = current?.image ?? processingImage
   const { artifact, texts } = current ?? {}
-  const fileName = current?.file.name ?? processing?.file.name ?? "Click here to upload Artifact screenshot files"
+  const fileName = current?.fileName ?? processing?.file.name ?? "Click here to upload Artifact screenshot files"
 
   useEffect(() => {
     if (!artifactInEditor && artifact)
@@ -40,7 +40,7 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
 
   useEffect(() => {
     processing?.image.then(image => processing.result.then(({ artifact, texts }) => {
-      dispatchQueue({ type: "processed", entry: { file: processing.file, image, artifact, texts } })
+      dispatchQueue({ type: "processed", file: processing.file, entry: { fileName: processing.file.name, image, artifact, texts } })
     }))
   }, [processing])
 
@@ -80,21 +80,20 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
     </Col>}
     <Col xs={8} lg={image ? 4 : 0}>{img}</Col>
     <Col xs={12} lg={image ? 8 : 12}>
-      {remaining > 0 && <>
+      {!current && processing &&
         <div className="mb-2">
-          <h6 className="mb-0">{`${processing ? `Scanning` : "Scanned"}`} {processed.length ? `${processed.length} artifacts ahead` : "current artifact"}</h6>
-          <ProgressBar animated={!!processing} now={100} />
-        </div>
-        {texts && <div className="mb-2">
-          <div>{texts.slotKey}</div>
-          <div>{texts.mainStatKey}</div>
-          <div>{texts.mainStatVal}</div>
-          <div>{texts.numStars}</div>
-          <div>{texts.level}</div>
-          <div>{texts.substats}</div>
-          <div>{texts.setKey}</div>
+          <h6 className="mb-0">Scanning current artifact</h6>
+          <ProgressBar animated now={100} />
         </div>}
-      </>}
+      {texts && <div className="mb-2">
+        <div>{texts.slotKey}</div>
+        <div>{texts.mainStatKey}</div>
+        <div>{texts.mainStatVal}</div>
+        <div>{texts.numStars}</div>
+        <div>{texts.level}</div>
+        <div>{texts.substats}</div>
+        <div>{texts.setKey}</div>
+      </div>}
       <Form.File
         type="file"
         className="mb-0"
@@ -177,7 +176,7 @@ const queueReducer = (queue: Queue, message: UploadMessage | ProcessedMessage | 
   switch (message.type) {
     case "upload": return finalize(queue.processed, [...queue.outstanding, ...message.files])
     case "processed":
-      if (queue.outstanding[0] === message.entry.file)
+      if (queue.outstanding[0] === message.file)
         return finalize([...queue.processed, message.entry], queue.outstanding.slice(1))
       return queue // Not in the list, ignored
     case "pop": return finalize(queue.processed.slice(1), queue.outstanding)
@@ -270,14 +269,13 @@ function imageDataToURL(imageDataObj: ImageData) {
 async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], substatTexts: string[], whiteTexts: string[], rarities: Set<Rarity> }> {
   const imageDataObj = await urlToImageData(urlFile)
 
-  const width = imageDataObj.width, halfHeight = imageDataObj.height / 2
-  const topOpts = { rectangle: { top: 0, left: 0, width, height: halfHeight } }
+  const width = imageDataObj.width, halfHeight = Math.floor(imageDataObj.height / 2)
   const bottomOpts = { rectangle: { top: halfHeight, left: 0, width, height: halfHeight } }
 
   const awaits = [
-    textsFromImage(bandPass(imageDataObj, [140, 140, 140], [255, 255, 255], { mode: "bw" }), topOpts), // slotkey, mainStatValue, level
-    textsFromImage(bandPass(imageDataObj, [30, 50, 80], [160, 160, 160], {}), bottomOpts), // substats
-    textsFromImage(bandPass(imageDataObj, [30, 160, 30], [200, 255, 200], { mode: "bw" }), bottomOpts), // artifact set, look for greenish texts
+    textsFromImage(bandPass(imageDataObj, [140, 140, 140], [255, 255, 255], { mode: "bw", region: "top" })), // slotkey, mainStatValue, level
+    textsFromImage(bandPass(imageDataObj, [30, 50, 80], [160, 160, 160], { region: "bot" }), bottomOpts), // substats
+    textsFromImage(bandPass(imageDataObj, [30, 160, 30], [200, 255, 200], { mode: "bw", region: "bot" }), bottomOpts), // artifact set, look for greenish texts
   ]
 
   const rarities = parseRarities(imageDataObj.data, imageDataObj.width, imageDataObj.height)
@@ -411,9 +409,9 @@ export function findBestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactShee
   addText("setKey", textSetKeys, "Set", (value) => sheets[value].name)
   addText("numStars", rarities, "Rarity", (value) => <>{value} {value !== 1 ? "Stars" : "Star"}</>)
   addText("slotKey", slotKeys, "Slot", (value) => <>{Artifact.slotName(value)}</>)
-  addText("mainStatKey", mainStatKeys, "Main Stat", (value) => <>{Stat.getStatNameWithPercent(value)}{ }</>)
+  addText("mainStatKey", mainStatKeys, "Main Stat", (value) => <>{Stat.getStatNameRaw(value)}</>)
   texts.substats = <>{result.substats.filter(substat => substat.key !== "").map((substat, i) =>
-    <div key={i}>{detectedText(substat, "Sub Stat", (value) => <>{Stat.getStatName(value.key)}+{value.value}{Stat.getStatUnit(value.key) === "%" ? "%" : ""}</>)}</div>)
+    <div key={i}>{detectedText(substat, "Sub Stat", (value) => <>{Stat.getStatNameRaw(value.key)}+{value.value}{Stat.getStatUnit(value.key) === "%" ? "%" : ""}</>)}</div>)
   }</>
 
   const unit = Stat.getStatUnit(result.mainStatKey)
@@ -520,13 +518,16 @@ function parseSubstats(texts: string[]): Substat[] {
   return matches
 }
 
-function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: { mode?: "bw" | "color" | "invert" }) {
-  const { mode = "color" } = options
+function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: { region?: "top" | "bot" | "all", mode?: "bw" | "color" | "invert" }) {
+  const { region = "all", mode = "color" } = options
   const d = Uint8ClampedArray.from(pixelData.data)
+  const top = region === "top", bot = region === "bot", all = region === "all"
   const bw = mode === "bw", invert = mode === "invert"
+  const halfInd = Math.floor(pixelData.width * (pixelData.height / 2) * 4)
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
-    if (r >= color1[0] && r <= color2[0] &&
+    if ((all || (top && i < halfInd) || (bot && i > halfInd)) &&
+      r >= color1[0] && r <= color2[0] &&
       g >= color1[1] && g <= color2[1] &&
       b >= color1[2] && b <= color2[2]) {
       if (bw) d[i] = d[i + 1] = d[i + 2] = 0
@@ -543,14 +544,14 @@ function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: {
 }
 
 type ProcessedEntry = {
-  file: File, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
+  fileName: string, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
 }
 type ProcessingEntry = {
   file: File, image: Promise<string>, result: Promise<{ artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable> }>
 }
 type Queue = { processed: ProcessedEntry[], outstanding: File[], processing: ProcessingEntry | undefined }
 type UploadMessage = { type: "upload", files: File[] }
-type ProcessedMessage = { type: "processed", entry: ProcessedEntry }
+type ProcessedMessage = { type: "processed", file: File, entry: ProcessedEntry }
 type PopMessage = { type: "pop" }
 type ClearMessage = { type: "clear" }
 type Color = [number, number, number] // RGB
