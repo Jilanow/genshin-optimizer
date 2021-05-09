@@ -14,9 +14,29 @@ import { allArtifactRarities, allArtifactSets, allSlotKeys, ArtifactSetKey, Rari
 import { ArtifactSheet } from './ArtifactSheet';
 import { valueString } from '../Util/UIUtil';
 import { usePromise } from '../Util/ReactUtil';
+import { RefCount } from '../Util/RefCountUtil';
 
 const starColor = { r: 255, g: 204, b: 50 } //#FFCC32
 const maxProcessingCount = 3, maxProcessedCount = 16, workerCount = 2
+
+const schedulers = new RefCount(async (language): Promise<Scheduler> => {
+  const scheduler = createScheduler()
+  const promises = Array(workerCount).fill(0).map(async _ => {
+    const worker = createWorker({
+      errorHandler: console.error
+    })
+
+    await worker.load()
+    await worker.loadLanguage(language)
+    await worker.initialize(language)
+    scheduler.addWorker(worker)
+  })
+
+  await Promise.any(promises)
+  return scheduler
+}, (_language, value) => {
+  value.then(value => value.terminate())
+})
 
 export default function UploadDisplay({ setState, setReset, artifactInEditor }) {
   const [modalShow, setModalShow] = useState(false)
@@ -39,10 +59,10 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
       setState(artifact)
   }, [artifactInEditor, artifact, setState])
 
-  useEffect(() => () => { deleteScheduler('eng') }, [])
+  useEffect(() => () => { schedulers.delete('eng') }, [])
   useEffect(() => {
     if (!outstanding.length)
-      deleteScheduler('eng')
+      schedulers.delete('eng')
   }, [outstanding.length])
 
   useEffect(() => {
@@ -55,7 +75,7 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
 
   useEffect(() => {
     if (processingResult)
-      dispatchQueue({ type: "processed", file: processingResult[0], result: processingResult[1] })
+      dispatchQueue({ type: "processed", ...processingResult })
   }, [processingResult, dispatchQueue])
 
   const removeCurrent = useCallback(() => dispatchQueue({ type: "pop" }), [dispatchQueue])
@@ -194,51 +214,6 @@ const queueReducer = (queue: Queue, message: UploadMessage | ProcessingMessage |
   }
 }
 
-const schedulers: Dict<string, { promise: Promise<Scheduler>, counter: number, terminated: boolean }> = {}
-async function getScheduler<T>(language: string, callback: (arg: Scheduler) => Promise<T>): Promise<T> {
-  if (!schedulers[language]) {
-    const scheduler = createScheduler()
-    const promises = Array(workerCount).fill(0).map(_ => {
-      const worker = createWorker({
-        errorHandler: console.error
-      })
-
-      return worker.load().then(async () => {
-        await worker.loadLanguage(language)
-        await worker.initialize(language)
-        scheduler.addWorker(worker)
-      })
-    })
-
-    const result = { promise: Promise.any(promises).then(() => scheduler), counter: 0, terminated: false }
-    schedulers[language] = result
-  }
-
-  const box = schedulers[language]!
-  box.counter += 1
-  const scheduler = await box.promise
-  const result = await callback(scheduler)
-  box.counter -= 1
-  if (!box.counter && box.terminated) {
-    scheduler.terminate()
-    delete schedulers[language]
-  }
-  return result
-}
-async function deleteScheduler(language: string) {
-  const box = schedulers[language]!
-  if (!box) return
-
-  if (box.counter) {
-    // Someone is using it. Tell them to clean up
-    box.terminated = true
-  } else {
-    // Unused, clean up now
-    delete schedulers[language];
-    (await box.promise).terminate()
-  }
-}
-
 function processEntry(entry: OutstandingEntry) {
   if (entry.result) return
 
@@ -257,7 +232,7 @@ function processEntry(entry: OutstandingEntry) {
       parseMainStatValues(ocrResult.whiteTexts)
     )
 
-    return [file, { fileName, image, artifact, texts }] as [File, ProcessedEntry]
+    return { file, result: { fileName, image, artifact, texts } }
   })
 }
 
@@ -315,8 +290,8 @@ async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], subst
 }
 async function textsFromImage(imageDataObj: ImageData, options: object | undefined = undefined): Promise<string[]> {
   const imageURL = imageDataToURL(imageDataObj)
-  const rec = await getScheduler("eng", async (scheduler) =>
-    await scheduler.addJob("recognize", imageURL, options) as RecognizeResult)
+  const rec = await schedulers.get("eng", async (scheduler) =>
+    await (await scheduler).addJob("recognize", imageURL, options) as RecognizeResult)
   return rec.data.lines.map(line => line.text)
 }
 
@@ -578,7 +553,7 @@ type ProcessedEntry = {
   fileName: string, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
 }
 type OutstandingEntry = {
-  file: File, fileName: string, image?: Promise<string>, result?: Promise<[File, ProcessedEntry]>
+  file: File, fileName: string, image?: Promise<string>, result?: Promise<{ file: File, result: ProcessedEntry }>
 }
 type Queue = { processed: ProcessedEntry[], outstanding: OutstandingEntry[] }
 type UploadMessage = { type: "upload", files: OutstandingEntry[] }
