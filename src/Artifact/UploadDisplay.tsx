@@ -16,36 +16,51 @@ import { valueString } from '../Util/UIUtil';
 import { usePromise } from '../Util/ReactUtil';
 
 const starColor = { r: 255, g: 204, b: 50 } //#FFCC32
-const maxProcessingCount = 16, workerCount = 2
-
-const schedulers: Dict<string, Promise<Scheduler>> = {}
+const maxProcessingCount = 3, maxProcessedCount = 16, workerCount = 2
 
 export default function UploadDisplay({ setState, setReset, artifactInEditor }) {
   const [modalShow, setModalShow] = useState(false)
 
-  const [{ processed, outstanding, processing }, dispatchQueue] = useReducer(queueReducer, { processed: [], outstanding: [], processing: undefined })
+  const [{ processed, outstanding }, dispatchQueue] = useReducer(queueReducer, { processed: [], outstanding: [] })
+  const firstProcessed = processed[0] as ProcessedEntry | undefined
+  const firstOutstanding = outstanding[0] as OutstandingEntry | undefined
+
+  const processingImage = usePromise(firstOutstanding?.image)
+  const processingResult = usePromise(firstOutstanding?.result)
+
   const remaining = processed.length + outstanding.length
 
-  const processingImage = usePromise(processing?.image)
-
-  const current = processed[0] as ProcessedEntry | undefined
-  const image = current?.image ?? processingImage
-  const { artifact, texts } = current ?? {}
-  const fileName = current?.fileName ?? processing?.file.name ?? "Click here to upload Artifact screenshot files"
+  const image = firstProcessed?.image ?? processingImage
+  const { artifact, texts } = firstProcessed ?? {}
+  const fileName = firstProcessed?.fileName ?? firstOutstanding?.fileName ?? "Click here to upload Artifact screenshot files"
 
   useEffect(() => {
     if (!artifactInEditor && artifact)
       setState(artifact)
   }, [artifactInEditor, artifact, setState])
 
+  useEffect(() => () => { deleteScheduler('eng') }, [])
   useEffect(() => {
-    processing?.image.then(image => processing.result.then(({ artifact, texts }) => {
-      dispatchQueue({ type: "processed", file: processing.file, entry: { fileName: processing.file.name, image, artifact, texts } })
-    }))
-  }, [processing])
+    if (!outstanding.length)
+      deleteScheduler('eng')
+  }, [outstanding.length])
+
+  useEffect(() => {
+    const numProcessing = Math.min(maxProcessedCount - processed.length, maxProcessingCount, outstanding.length)
+    const processingCurrent = numProcessing && !outstanding[0].result
+    outstanding.slice(0, numProcessing).forEach(processEntry)
+    if (processingCurrent)
+      dispatchQueue({ type: "processing" })
+  }, [processed.length, outstanding])
+
+  useEffect(() => {
+    if (processingResult)
+      dispatchQueue({ type: "processed", file: processingResult[0], result: processingResult[1] })
+  }, [processingResult, dispatchQueue])
 
   const removeCurrent = useCallback(() => dispatchQueue({ type: "pop" }), [dispatchQueue])
-  const uploadFiles = useCallback((files: FileList) => dispatchQueue({ type: "upload", files: [...files] }), [dispatchQueue])
+  const uploadFiles = useCallback((files: FileList) =>
+    dispatchQueue({ type: "upload", files: [...files].map(file => ({ file, fileName: file.name })) }), [dispatchQueue])
   const clearQueue = useCallback(() => dispatchQueue({ type: "clear" }), [dispatchQueue])
 
   useEffect(() => {
@@ -73,14 +88,15 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
     {remaining > 0 && <Col xs={12}>
       <Card bg="lightcontent" text={"lightfont" as any} className="mb-2">
         <Row>
-          <Col className="p-1 ml-2">Screenshots in file-queue: <b>{remaining}</b></Col>
+          <Col className="p-1 ml-2">Screenshots in file-queue: <b>{remaining}</b>{process.env.NODE_ENV === "development" &&
+            ` (Debug: Processed ${processed.length}/${maxProcessedCount}, Processing: ${outstanding.filter(entry => entry.result).length}/${maxProcessingCount}, Outstanding: ${outstanding.length})`}</Col>
           <Col xs="auto"><Button size="sm" variant="danger" onClick={clearQueue}>Clear file-queue</Button></Col>
         </Row>
       </Card>
     </Col>}
     <Col xs={8} lg={image ? 4 : 0}>{img}</Col>
     <Col xs={12} lg={image ? 8 : 12}>
-      {!current && processing &&
+      {!firstProcessed && firstOutstanding &&
         <div className="mb-2">
           <h6 className="mb-0">Scanning current artifact</h6>
           <ProgressBar animated now={100} />
@@ -164,51 +180,71 @@ function ExplainationModal({ modalShow, hide }) {
   </Modal>
 }
 
-const queueReducer = (queue: Queue, message: UploadMessage | ProcessedMessage | PopMessage | ClearMessage): Queue => {
-  const finalize = (processed: ProcessedEntry[], outstanding: File[]) => {
-    if (outstanding[0] !== queue.processing?.file) {
-      const file = processed.length < maxProcessingCount ? outstanding[0] : undefined
-      const processing = file ? processEntry(file) : undefined
-      return { processed, outstanding, processing }
-    }
-    return { processed, outstanding, processing: queue.processing }
-  }
+const queueReducer = (queue: Queue, message: UploadMessage | ProcessingMessage | ProcessedMessage | PopMessage | ClearMessage): Queue => {
   switch (message.type) {
-    case "upload": return finalize(queue.processed, [...queue.outstanding, ...message.files])
+    case "upload": return { processed: queue.processed, outstanding: [...queue.outstanding, ...message.files] }
+    case "processing": // Processing `outstanding` head. Refresh
+      return { processed: queue.processed, outstanding: [...queue.outstanding] }
     case "processed":
-      if (queue.outstanding[0] === message.file)
-        return finalize([...queue.processed, message.entry], queue.outstanding.slice(1))
+      if (queue.outstanding[0].file === message.file)
+        return { processed: [...queue.processed, message.result], outstanding: queue.outstanding.slice(1) }
       return queue // Not in the list, ignored
-    case "pop": return finalize(queue.processed.slice(1), queue.outstanding)
-    case "clear": return { processed: [], outstanding: [], processing: undefined }
+    case "pop": return { processed: queue.processed.slice(1), outstanding: queue.outstanding }
+    case "clear": return { processed: [], outstanding: [] }
   }
 }
 
-function getScheduler(language: string): Promise<Scheduler> {
-  if (schedulers[language])
-    return schedulers[language]!
+const schedulers: Dict<string, { promise: Promise<Scheduler>, counter: number, terminated: boolean }> = {}
+async function getScheduler<T>(language: string, callback: (arg: Scheduler) => Promise<T>): Promise<T> {
+  if (!schedulers[language]) {
+    const scheduler = createScheduler()
+    const promises = Array(workerCount).fill(0).map(_ => {
+      const worker = createWorker({
+        errorHandler: console.error
+      })
 
-  const scheduler = createScheduler()
-  const promises = Array(workerCount).fill(0).map(_ => {
-    const worker = createWorker({
-      errorHandler: console.error
+      return worker.load().then(async () => {
+        await worker.loadLanguage(language)
+        await worker.initialize(language)
+        scheduler.addWorker(worker)
+      })
     })
 
-    return worker.load().then(async () => {
-      await worker.loadLanguage(language)
-      await worker.initialize(language)
-      scheduler.addWorker(worker)
-    })
-  })
+    const result = { promise: Promise.any(promises).then(() => scheduler), counter: 0, terminated: false }
+    schedulers[language] = result
+  }
 
-  const result = Promise.any(promises).then(() => scheduler)
-  schedulers[language] = result
+  const box = schedulers[language]!
+  box.counter += 1
+  const scheduler = await box.promise
+  const result = await callback(scheduler)
+  box.counter -= 1
+  if (!box.counter && box.terminated) {
+    scheduler.terminate()
+    delete schedulers[language]
+  }
   return result
 }
+async function deleteScheduler(language: string) {
+  const box = schedulers[language]!
+  if (!box) return
 
-function processEntry(file: File): ProcessingEntry {
-  const image = fileToURL(file)
-  const result = image.then(async image => {
+  if (box.counter) {
+    // Someone is using it. Tell them to clean up
+    box.terminated = true
+  } else {
+    // Unused, clean up now
+    delete schedulers[language];
+    (await box.promise).terminate()
+  }
+}
+
+function processEntry(entry: OutstandingEntry) {
+  if (entry.result) return
+
+  const { file, fileName } = entry
+  entry.image = fileToURL(entry.file)
+  entry.result = entry.image.then(async image => {
     const sheets = await ArtifactSheet.getAll()
     const ocrResult = await ocr(image)
 
@@ -221,29 +257,24 @@ function processEntry(file: File): ProcessingEntry {
       parseMainStatValues(ocrResult.whiteTexts)
     )
 
-    return { artifact, texts }
+    return [file, { fileName, image, artifact, texts }] as [File, ProcessedEntry]
   })
-  return { file, image, result }
 }
 
-function fileToURL(file): Promise<string> {
-  let reader = new FileReader()
-  return new Promise(resolve => {
-    // let reader = new FileReader();
-    reader.onloadend = () => {
-      resolve(reader.result as string); // TODO: May not be string
-    }
-    reader.readAsDataURL(file)
-  })
-}
-function urlToImageData(urlFile: string): Promise<ImageData> {
-  return new Promise(resolve => {
-    let img = new Image();
-    img.onload = () =>
-      resolve(getImageData(img))
-    img.src = urlFile
-  })
-}
+const fileToURL = (file: File): Promise<string> => new Promise(resolve => {
+  const reader = new FileReader()
+  reader.onloadend = ({ target }) => {
+    resolve(target!.result as string)
+  }
+  reader.readAsDataURL(file)
+})
+const urlToImageData = (urlFile: string): Promise<ImageData> => new Promise(resolve => {
+  const img = new Image()
+  img.onload = ({ target }) => {
+    resolve(getImageData(target as HTMLImageElement))
+  }
+  img.src = urlFile
+})
 
 function getImageData(image: HTMLImageElement): ImageData {
   const tempCanvas = document.createElement('canvas'), tempCtx = tempCanvas.getContext('2d')
@@ -284,8 +315,8 @@ async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], subst
 }
 async function textsFromImage(imageDataObj: ImageData, options: object | undefined = undefined): Promise<string[]> {
   const imageURL = imageDataToURL(imageDataObj)
-  const scheduler = await getScheduler("eng")
-  const rec = await scheduler.addJob("recognize", imageURL, options) as RecognizeResult
+  const rec = await getScheduler("eng", async (scheduler) =>
+    await scheduler.addJob("recognize", imageURL, options) as RecognizeResult)
   return rec.data.lines.map(line => line.text)
 }
 
@@ -546,12 +577,13 @@ function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: {
 type ProcessedEntry = {
   fileName: string, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
 }
-type ProcessingEntry = {
-  file: File, image: Promise<string>, result: Promise<{ artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable> }>
+type OutstandingEntry = {
+  file: File, fileName: string, image?: Promise<string>, result?: Promise<[File, ProcessedEntry]>
 }
-type Queue = { processed: ProcessedEntry[], outstanding: File[], processing: ProcessingEntry | undefined }
-type UploadMessage = { type: "upload", files: File[] }
-type ProcessedMessage = { type: "processed", file: File, entry: ProcessedEntry }
+type Queue = { processed: ProcessedEntry[], outstanding: OutstandingEntry[] }
+type UploadMessage = { type: "upload", files: OutstandingEntry[] }
+type ProcessingMessage = { type: "processing" }
+type ProcessedMessage = { type: "processed", file: File, result: ProcessedEntry }
 type PopMessage = { type: "pop" }
 type ClearMessage = { type: "clear" }
 type Color = [number, number, number] // RGB
