@@ -45,12 +45,12 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
   const firstProcessed = processed[0] as ProcessedEntry | undefined
   const firstOutstanding = outstanding[0] as OutstandingEntry | undefined
 
-  const processingImage = usePromise(firstOutstanding?.image)
+  const processingImageURL = usePromise(firstOutstanding?.imageURL)
   const processingResult = usePromise(firstOutstanding?.result)
 
   const remaining = processed.length + outstanding.length
 
-  const image = firstProcessed?.image ?? processingImage
+  const image = firstProcessed?.imageURL ?? processingImageURL
   const { artifact, texts } = firstProcessed ?? {}
   const fileName = firstProcessed?.fileName ?? firstOutstanding?.fileName ?? "Click here to upload Artifact screenshot files"
 
@@ -212,10 +212,10 @@ function processEntry(entry: OutstandingEntry) {
   if (entry.result) return
 
   const { file, fileName } = entry
-  entry.image = fileToURL(entry.file)
-  entry.result = entry.image.then(async image => {
+  entry.imageURL = fileToURL(file)
+  entry.result = entry.imageURL.then(async imageURL => {
     const sheets = await ArtifactSheet.getAll()
-    const ocrResult = await ocr(image)
+    const ocrResult = await ocr(imageURL)
 
     const [artifact, texts] = findBestArtifact(
       sheets, ocrResult.rarities,
@@ -226,66 +226,60 @@ function processEntry(entry: OutstandingEntry) {
       parseMainStatValues(ocrResult.whiteTexts)
     )
 
-    return { file, result: { fileName, image, artifact, texts } }
+    return { file, result: { fileName, imageURL, artifact, texts } }
   })
 }
 
 const fileToURL = (file: File): Promise<string> => new Promise(resolve => {
   const reader = new FileReader()
-  reader.onloadend = ({ target }) => {
+  reader.onloadend = ({ target }) =>
     resolve(target!.result as string)
-  }
   reader.readAsDataURL(file)
 })
 const urlToImageData = (urlFile: string): Promise<ImageData> => new Promise(resolve => {
   const img = new Image()
-  img.onload = ({ target }) => {
-    resolve(getImageData(target as HTMLImageElement))
-  }
+  img.onload = ({ target }) =>
+    resolve(imageToImageData(target as HTMLImageElement))
   img.src = urlFile
 })
-
-function getImageData(image: HTMLImageElement): ImageData {
-  const tempCanvas = document.createElement('canvas'), tempCtx = tempCanvas.getContext('2d')
-  tempCanvas.width = image.width
-  tempCanvas.height = image.height
-  tempCtx?.drawImage(image, 0, 0, image.width, image.height)
-  const imageDataObj = tempCtx?.getImageData(0, 0, image.width, image.height) as ImageData // TODO: May be undefined
-  return imageDataObj
+function imageToImageData(image: HTMLImageElement): ImageData {
+  const canvas = document.createElement('canvas'), context = canvas.getContext('2d')!
+  canvas.width = image.width
+  canvas.height = image.height
+  context.drawImage(image, 0, 0, image.width, image.height)
+  return context.getImageData(0, 0, image.width, image.height) as ImageData // TODO: May be undefined
 }
-
-function imageDataToURL(imageDataObj: ImageData) {
+function imageDataToCanvas(imageData: ImageData) {
   // create off-screen canvas element
-  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')
-  canvas.width = imageDataObj.width
-  canvas.height = imageDataObj.height
+  const canvas = document.createElement('canvas')
+  canvas.width = imageData.width
+  canvas.height = imageData.height
 
-  const idata = ctx?.createImageData(imageDataObj.width, imageDataObj.height) as ImageData // create imageData object
-  idata.data.set(imageDataObj.data) // set our buffer as source
-  ctx?.putImageData(idata, 0, 0) // update canvas with new data
-  return canvas.toDataURL(); // produces a PNG file
+  // update canvas with new data
+  canvas.getContext('2d')!.putImageData(imageData, 0, 0)
+  return canvas // produces a PNG file
 }
 
-async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], substatTexts: string[], whiteTexts: string[], rarities: Set<Rarity> }> {
-  const imageDataObj = await urlToImageData(urlFile)
+async function ocr(imageURL: string): Promise<{ artifactSetTexts: string[], substatTexts: string[], whiteTexts: string[], rarities: Set<Rarity> }> {
+  const imageData = await urlToImageData(imageURL)
 
-  const width = imageDataObj.width, halfHeight = Math.floor(imageDataObj.height / 2)
+  const width = imageData.width, halfHeight = Math.floor(imageData.height / 2)
   const bottomOpts = { rectangle: { top: halfHeight, left: 0, width, height: halfHeight } }
 
   const awaits = [
-    textsFromImage(bandPass(imageDataObj, [140, 140, 140], [255, 255, 255], { mode: "bw", region: "top" })), // slotkey, mainStatValue, level
-    textsFromImage(bandPass(imageDataObj, [30, 50, 80], [160, 160, 160], { region: "bot" }), bottomOpts), // substats
-    textsFromImage(bandPass(imageDataObj, [30, 160, 30], [200, 255, 200], { mode: "bw", region: "bot" }), bottomOpts), // artifact set, look for greenish texts
+    textsFromImage(bandPass(imageData, [140, 140, 140], [255, 255, 255], { mode: "bw", region: "top" })), // slotkey, mainStatValue, level
+    textsFromImage(bandPass(imageData, [30, 50, 80], [160, 160, 160], { region: "bot" }), bottomOpts), // substats
+    textsFromImage(bandPass(imageData, [30, 160, 30], [200, 255, 200], { mode: "bw", region: "bot" }), bottomOpts), // artifact set, look for greenish texts
   ]
 
-  const rarities = parseRarities(imageDataObj.data, imageDataObj.width, imageDataObj.height)
+  const rarities = parseRarities(imageData.data, imageData.width, imageData.height)
   const [whiteTexts, substatTexts, artifactSetTexts] = await Promise.all(awaits)
   return { whiteTexts, substatTexts, artifactSetTexts, rarities }
 }
-async function textsFromImage(imageDataObj: ImageData, options: object | undefined = undefined): Promise<string[]> {
-  const imageURL = imageDataToURL(imageDataObj)
+async function textsFromImage(imageData: ImageData, options: object | undefined = undefined): Promise<string[]> {
+  const canvas = imageDataToCanvas(imageData)
   const rec = await schedulers.borrow("eng", async (scheduler) =>
-    await (await scheduler).addJob("recognize", imageURL, options) as RecognizeResult)
+    await (await scheduler).addJob("recognize", canvas, options) as RecognizeResult)
   return rec.data.lines.map(line => line.text)
 }
 
@@ -544,10 +538,10 @@ function bandPass(pixelData: ImageData, color1: Color, color2: Color, options: {
 }
 
 type ProcessedEntry = {
-  fileName: string, image: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
+  fileName: string, imageURL: string, artifact: IArtifact, texts: Dict<keyof IArtifact, Displayable>
 }
 type OutstandingEntry = {
-  file: File, fileName: string, image?: Promise<string>, result?: Promise<{ file: File, result: ProcessedEntry }>
+  file: File, fileName: string, imageURL?: Promise<string>, result?: Promise<{ file: File, result: ProcessedEntry }>
 }
 type Queue = { processed: ProcessedEntry[], outstanding: OutstandingEntry[] }
 type UploadMessage = { type: "upload", files: OutstandingEntry[] }
