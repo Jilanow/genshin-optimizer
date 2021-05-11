@@ -14,12 +14,12 @@ import { allArtifactRarities, allArtifactSets, allSlotKeys, ArtifactSetKey, Rari
 import { ArtifactSheet } from './ArtifactSheet';
 import { valueString } from '../Util/UIUtil';
 import { usePromise } from '../Util/ReactUtil';
-import { RefCount } from '../Util/RefCountUtil';
+import { BorrowManager } from '../Util/BorrowManager';
 
 const starColor = { r: 255, g: 204, b: 50 } //#FFCC32
 const maxProcessingCount = 3, maxProcessedCount = 16, workerCount = 2
 
-const schedulers = new RefCount(async (language): Promise<Scheduler> => {
+const schedulers = new BorrowManager(async (language): Promise<Scheduler> => {
   const scheduler = createScheduler()
   const promises = Array(workerCount).fill(0).map(async _ => {
     const worker = createWorker({
@@ -58,12 +58,6 @@ export default function UploadDisplay({ setState, setReset, artifactInEditor }) 
     if (!artifactInEditor && artifact)
       setState(artifact)
   }, [artifactInEditor, artifact, setState])
-
-  useEffect(() => () => { schedulers.delete('eng') }, [])
-  useEffect(() => {
-    if (!outstanding.length)
-      schedulers.delete('eng')
-  }, [outstanding.length])
 
   useEffect(() => {
     const numProcessing = Math.min(maxProcessedCount - processed.length, maxProcessingCount, outstanding.length)
@@ -290,7 +284,7 @@ async function ocr(urlFile: string): Promise<{ artifactSetTexts: string[], subst
 }
 async function textsFromImage(imageDataObj: ImageData, options: object | undefined = undefined): Promise<string[]> {
   const imageURL = imageDataToURL(imageDataObj)
-  const rec = await schedulers.get("eng", async (scheduler) =>
+  const rec = await schedulers.borrow("eng", async (scheduler) =>
     await (await scheduler).addJob("recognize", imageURL, options) as RecognizeResult)
   return rec.data.lines.map(line => line.text)
 }

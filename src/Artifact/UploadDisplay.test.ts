@@ -1,4 +1,4 @@
-import { allMainStatKeys, IArtifact } from "../Types/artifact"
+import { IArtifact } from "../Types/artifact"
 import { allArtifactSets, allSlotKeys } from "../Types/consts"
 import Artifact from "./Artifact"
 import { ArtifactSheet } from "./ArtifactSheet"
