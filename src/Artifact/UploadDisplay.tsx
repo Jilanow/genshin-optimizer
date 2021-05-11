@@ -368,8 +368,8 @@ export function findBestArtifact(sheets: StrictDict<ArtifactSetKey, ArtifactShee
 
   for (const other of bestArtifacts) {
     chosen.setKey!.add(other.setKey)
-    chosen.numStars!.add(other.numStars.toString())
-    chosen.level!.add(other.level.toString())
+    chosen.numStars!.add(other.numStars as any)
+    chosen.level!.add(other.level as any)
     chosen.slotKey!.add(other.slotKey)
     chosen.mainStatKey!.add(other.mainStatKey)
   }
