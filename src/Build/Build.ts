@@ -199,6 +199,7 @@ export function getTalentStatKey(skillKey, stats, useCharElement = false) {
   if ((Object.keys(ElementalData) as any).includes(skillKey)) return `${skillKey}_elemental_${hitMode}`//elemental DMG
   if (!useCharElement) useCharElement = weaponType === "catalyst"
 
+  if (skillKey === "physical burst") return `physical_burst_${hitMode}`
   if (skillKey === "elemental" || skillKey === "burst" || skillKey === "skill" || useCharElement) {
     if (reactionMode && reactionMode.startsWith(characterEle)) return `${reactionMode}_${skillKey}_${hitMode}`
     return `${characterEle}_${skillKey}_${hitMode}`
