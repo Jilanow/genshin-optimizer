@@ -59,6 +59,8 @@ const formula: IFormulaSheet = {
     burst_dmg: stats=> basicDMGFormula(data.burst.burst_dmg[stats.tlvl.burst], stats, "burst"),
     lightfall_sword_base_dmg: stats=> basicDMGFormula(data.burst.lightfall_sword_base_dmg[stats.tlvl.burst], stats, "physical burst"),
     dmg_per_stack: stats=> basicDMGFormula(data.burst.dmg_per_stack[stats.tlvl.burst], stats, "physical burst"),
+    ...Object.fromEntries([...Array(31).keys()].map(i =>
+      [i, stats => basicDMGFormula((data.burst.lightfall_sword_base_dmg[stats.tlvl.burst] + i * data.burst.dmg_per_stack[stats.tlvl.burst]), stats, "physical burst")]))
   },
   passive1: {
     dmg: stats => basicDMGFormula(data.burst.lightfall_sword_base_dmg[stats.tlvl.burst]/2, stats, "physical burst"),

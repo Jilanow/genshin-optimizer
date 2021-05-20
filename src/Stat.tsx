@@ -30,7 +30,7 @@ export default class Stat {
     return unit === "%" ? 1 : 0
   }
   static printStat = (statKey, stats) =>
-    f({ stats, expand: true }, statKey)
+    f({ stats, expand: false }, statKey)
 
   static getPrintableFormulaStatKeyList = (statList: any[] = [], modifiers = {}) => {
     let keys = new Set([...Object.keys(FormulaText), ...Object.keys(modifiers)])

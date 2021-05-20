@@ -29,6 +29,30 @@ const conditionals: IConditionals = {
       text: "RES Decrease Duration",
       value: "7s",
     }]
+  }, q: {
+    name: "Lightfall Sword",
+    states: Object.fromEntries([...Array(31).keys()].map(i =>
+      [i, {
+        name: i === 0 ? `Base DMG` : i === 1 ? `1 Stack` : `${i} Stacks`,
+        fields: [{
+          text: `Lightfall Sword ${i === 0 ? `Base DMG` : i === 1 ? `1 Stack` : `${i} Stacks`}`,
+          canShow: stats => {
+            if (i < 5 && stats.constellation >= 6) return false
+            const [stacks, stateKey] = (stats.conditionalValues?.character?.eula?.q ?? [])
+            return stacks && stateKey === i.toString()
+          },
+          formulaText: stats => {
+            const statKey = getTalentStatKey("physical burst", stats)
+            return i === 0 ? <span>{data.burst.lightfall_sword_base_dmg[stats.tlvl.burst]}% {Stat.printStat(statKey, stats)}</span> :
+              <span>( {data.burst.lightfall_sword_base_dmg[stats.tlvl.burst]}% + {i} * {data.burst.dmg_per_stack[stats.tlvl.burst]}%) {Stat.printStat(statKey, stats)}</span>
+          },
+          formula: formula.burst[i],
+          variant: "physical",
+        }, {
+          text: "Starts with 5 stacks",
+          canShow: stats => stats.constellation >= 6
+        }]
+      }])),
   },
   c1: { // Tidal Illusion
     canShow: stats => stats.constellation >= 1,
@@ -46,7 +70,7 @@ const conditionals: IConditionals = {
     canShow: stats => stats.constellation >= 4,
     name: "Enemy with less than 50% HP.",
     stats: { physical_burst_dmg_: 25 },
-  }
+  },
 }
 const char: ICharacterSheet = {
   name: "Eula",
@@ -184,13 +208,13 @@ const char: ICharacterSheet = {
           formulaText: stats =>
             <span>{data.burst.lightfall_sword_base_dmg[stats.tlvl.burst]}% {Stat.printStat(`physical_burst_${stats.hitMode}`, stats)}</span>,
           formula: formula.burst.lightfall_sword_base_dmg,
-          variant: stats => getTalentStatKey("physical burst", stats),
+          variant: "physical",
         }, {
           text: "DMG Per Stack",
           formulaText: stats =>
             <span>{data.burst.dmg_per_stack[stats.tlvl.burst]} {Stat.printStat(`physical_burst_${stats.hitMode}`, stats)}</span>,
           formula: formula.burst.dmg_per_stack,
-          variant: stats => getTalentStatKey("physical burst", stats),
+          variant: "physical",
         }, {
           text: "Maximum Stacks",
           value: "30",
