@@ -49,7 +49,7 @@ const conditionals: IConditionals = {
           formula: formula.burst[i],
           variant: "physical",
         }, {
-          text: "Starts with 5 stacks",
+          text: "Starts  5 stacks",
           canShow: stats => stats.constellation >= 6
         }]
       }])),
@@ -165,13 +165,8 @@ const char: ICharacterSheet = {
           formula: formula.skill.hold,
           variant: stats => getTalentStatKeyVariant("skill", stats),
         }, {
-          canShow: stats => stats.constellation >= 2,
           text: "Hold CD",
-          value: "4s",
-        }, {
-          canShow: stats => stats.constellation < 2,
-          text: "Hold CD",
-          value: "10s",
+          value: stats => stats.constellation >= 2 ? "10s" : "4s",
         }, {
           text: "Icewhirl Brand DMG",
           formulaText: stats => <span>{data.skill.hold[stats.tlvl.skill]}% {Stat.printStat(getTalentStatKey("skill", stats), stats)}</span>,

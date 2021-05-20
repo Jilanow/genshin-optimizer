@@ -53,8 +53,11 @@ const formula: IFormulaSheet = {
     low: stats => basicDMGFormula(data.plunging.low[stats.tlvl.auto], stats, "plunging"),
     high: stats => basicDMGFormula(data.plunging.high[stats.tlvl.auto], stats, "plunging"),
   },
-  skill: Object.fromEntries(Object.entries(data.skill).map(([name, arr]) =>
-      [name, stats => basicDMGFormula(arr[stats.tlvl.skill], stats, "skill")])),
+  skill: {
+    press: stats => basicDMGFormula(data.skill.press[stats.tlvl.skill], stats, "skill"),
+    hold: stats => basicDMGFormula(data.skill.hold[stats.tlvl.skill], stats, "skill"),
+    icewhirl_brand: stats => basicDMGFormula(data.skill.icewhirl_brand[stats.tlvl.skill], stats, "skill"),
+  },
   burst: {
     burst_dmg: stats=> basicDMGFormula(data.burst.burst_dmg[stats.tlvl.burst], stats, "burst"),
     lightfall_sword_base_dmg: stats=> basicDMGFormula(data.burst.lightfall_sword_base_dmg[stats.tlvl.burst], stats, "physical burst"),
