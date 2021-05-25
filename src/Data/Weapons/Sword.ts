@@ -22,6 +22,7 @@ import FesteringDesire from './Sword/FesteringDesire'
 import AquilaFavonia from './Sword/AquilaFavonia'
 import SkywardBlade from './Sword/SkywardBlade'
 import SummitShaper from './Sword/SummitShaper'
+import FreedomSworn from './Sword/FreedomSworn'
 const sword = {
   DullBlade,
   SilverSword,
@@ -47,5 +48,6 @@ const sword = {
   AquilaFavonia,
   SkywardBlade,
   SummitShaper,
+  FreedomSworn,
 }
 export default sword
