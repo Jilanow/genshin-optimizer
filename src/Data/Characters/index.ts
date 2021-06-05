@@ -12,6 +12,7 @@ import ganyu from './Ganyu'
 import hutao from './Hu Tao'
 import jean from './Jean'
 import kaeya from './Kaeya'
+import kazuha from './Kazuha'
 import keqing from './Keqing'
 import klee from './Klee'
 import lisa from './Lisa'
@@ -50,6 +51,7 @@ const characters: StrictDict<CharacterKey, ICharacterSheet> = {
   hutao,
   jean,
   kaeya,
+  kazuha,
   keqing,
   klee,
   lisa,

@@ -22,7 +22,7 @@ export const allArtifactSets = [
 ] as const
 export const allCharacterKeys = [
   "albedo", "amber", "barbara", "beidou", "bennett", "chongyun", "diluc", "diona", "fischl", "ganyu",
-  "hutao", "jean", "kaeya", "keqing", "klee", "lisa", "mona", "ningguang", "noelle", "qiqi",
+  "hutao", "jean", "kaeya", "kazuha", "keqing", "klee", "lisa", "mona", "ningguang", "noelle", "qiqi",
   "razor", "sucrose", "tartaglia", "traveler_anemo", "traveler_geo", "venti", "xiao", "xiangling", "xingqiu", "xinyan",
   "zhongli", "rosaria", "yanfei", "eula"
 ] as const

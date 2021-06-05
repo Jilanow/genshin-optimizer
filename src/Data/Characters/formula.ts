@@ -12,6 +12,7 @@ import ganyu from './Ganyu/data'
 import hutao from './Hu Tao/data'
 import jean from './Jean/data'
 import kaeya from './Kaeya/data'
+import kazuha from './Kazuha/data'
 import keqing from './Keqing/data'
 import klee from './Klee/data'
 import lisa from './Lisa/data'
@@ -48,6 +49,7 @@ const formula: IFormulaSheets = {
   hutao,
   jean,
   kaeya,
+  kazuha,
   keqing,
   klee,
   lisa,

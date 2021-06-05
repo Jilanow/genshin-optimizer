@@ -1,6 +1,6 @@
 import { IConditionals } from '../../../Types/IConditional'
 import { IWeaponSheet } from '../../../Types/weapon'
-import img from './Weapon_Iron_Sting.png'
+import img from './Weapon_Freedom_Sworn.png'
 const dmg_ = [10, 12.5, 15, 17.5, 20]
 const bonusDmg_ = [16, 20, 24, 28, 32]
 const condAtk_ = [20, 25, 30, 35, 40]

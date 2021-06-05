@@ -70,6 +70,7 @@ export default class CharacterSheet {
       const charFormulas = {}
       Object.entries(Formula.formulas.character[characterKey]).forEach(([talentKey, formulas]: any) => {
         Object.values(formulas as any).forEach((formula: any) => {
+          console.log(formulas)
           if (!formula.field.canShow(stats)) return
           if (talentKey === "normal" || talentKey === "charged" || talentKey === "plunging") talentKey = "auto"
           if (!charFormulas[talentKey]) charFormulas[talentKey] = []
